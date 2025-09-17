@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <div align="center">
 	<h1>🍅 Pomodoro Timer (Next.js + TypeScript)</h1>
 	<p>Focus / Break cycles with configurable lengths, drift‑proof timing, and responsive UI.</p>
@@ -133,3 +134,7 @@ Personal / educational use. Add a LICENSE file if you plan distribution.
 
 ---
 Made with Next.js 15 & TypeScript.
+=======
+# Pomodoro-Timer
+Focus / Break cycles with configurable lengths, drift‑proof timing, and responsive UI.
+>>>>>>> 8a911a350af6844215ba0f23876864ca0f061d4c
