@@ -10,6 +10,7 @@
  */
 
 import React from 'react';
+import { useTheme } from './ThemeProvider';
 
 interface TimerDisplayProps {
   minutes: number;
@@ -24,30 +25,18 @@ const TimerDisplay: React.FC<TimerDisplayProps> = ({
   isRunning = false,
   mode = 'work'
 }) => {
+  const { currentTheme } = useTheme();
+  
   // Format numbers to always show two digits
   const formatTime = (time: number): string => {
     return time.toString().padStart(2, '0');
-  };
-
-  // Get color scheme based on mode
-  const getModeStyles = () => {
-    switch (mode) {
-      case 'work':
-        return 'text-red-600 border-red-300';
-      case 'break':
-        return 'text-green-600 border-green-300';
-      case 'longBreak':
-        return 'text-blue-600 border-blue-300';
-      default:
-        return 'text-gray-600 border-gray-300';
-    }
   };
 
   return (
     <div className="flex flex-col items-center justify-center p-8">
       {/* Mode Label */}
       <div className="mb-4">
-        <span className={`text-sm font-medium uppercase tracking-wide ${getModeStyles().split(' ')[0]}`}>
+        <span className={`text-sm font-medium uppercase tracking-wide ${currentTheme.text}`}>
           {mode === 'work' ? 'Focus Time' : mode === 'break' ? 'Short Break' : 'Long Break'}
         </span>
       </div>
@@ -59,9 +48,10 @@ const TimerDisplay: React.FC<TimerDisplayProps> = ({
         w-80 h-80
         text-8xl font-mono font-bold
         border-8 rounded-full
-        ${getModeStyles()}
+        ${currentTheme.text} border-opacity-30
         ${isRunning ? 'animate-pulse' : ''}
         bg-white shadow-2xl
+        border-current
       `}>
         <div className="text-center">
           <span>{formatTime(minutes)}</span>
@@ -72,7 +62,7 @@ const TimerDisplay: React.FC<TimerDisplayProps> = ({
         {/* Running indicator */}
         {isRunning && (
           <div className="absolute -top-2 -right-2">
-            <div className="w-4 h-4 bg-green-500 rounded-full animate-pulse"></div>
+            <div className={`w-4 h-4 ${currentTheme.primary} rounded-full animate-pulse`}></div>
           </div>
         )}
       </div>
@@ -81,10 +71,7 @@ const TimerDisplay: React.FC<TimerDisplayProps> = ({
       <div className="mt-6 w-80">
         <div className="w-full bg-gray-200 rounded-full h-2">
           <div 
-            className={`h-2 rounded-full transition-all duration-1000 ${
-              mode === 'work' ? 'bg-red-500' : 
-              mode === 'break' ? 'bg-green-500' : 'bg-blue-500'
-            }`}
+            className={`h-2 rounded-full transition-all duration-1000 ${currentTheme.primary}`}
             style={{ 
               width: `${((25 * 60 - (minutes * 60 + seconds)) / (25 * 60)) * 100}%` 
             }}

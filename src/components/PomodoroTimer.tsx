@@ -19,6 +19,8 @@ import TimerDisplay from './TimerDisplay';
 import Controls from './Controls';
 import LengthSetting from './LengthSetting';
 import Alert from './Alert';
+import ThemeSelector from './ThemeSelector';
+import { useTheme } from './ThemeProvider';
 
 type TimerMode = 'work' | 'break' | 'longBreak';
 
@@ -33,6 +35,8 @@ interface PomodoroState {
 }
 
 const PomodoroTimer: React.FC = () => {
+  const { currentTheme } = useTheme();
+  
   const [state, setState] = useState<PomodoroState>({
     mode: 'work',
     timeLeft: 25 * 60, // 25 minutes in seconds
@@ -45,6 +49,9 @@ const PomodoroTimer: React.FC = () => {
 
   const [showAlert, setShowAlert] = useState(false);
   const [alertMessage, setAlertMessage] = useState('');
+
+  // Track running state with ref to avoid closure issues
+  const isRunningRef = useRef(false);
 
   // Convert seconds to minutes and seconds
   const getDisplayTime = () => {
@@ -59,16 +66,172 @@ const PomodoroTimer: React.FC = () => {
     setShowAlert(true);
   };
 
+  // Auto-dismiss alert after 5 seconds
+  useEffect(() => {
+    if (showAlert) {
+      const timer = setTimeout(() => {
+        setShowAlert(false);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [showAlert]);
+
   // Maintain a ref for the absolute timestamp (ms) when current period ends
   const targetEndRef = useRef<number | null>(null);
 
-  // Establish a new target end time based on current mode lengths (in minutes -> seconds)
-  const establishTarget = useCallback((durationSeconds: number) => {
-    targetEndRef.current = Date.now() + durationSeconds * 1000;
-  }, []);
+  // Drift-proof timer effect: compute remaining time from target each tick
+  useEffect(() => {
+    // Update ref when state changes
+    isRunningRef.current = state.isRunning;
+    
+    if (!state.isRunning) {
+      // Ensure target is cleared when not running
+      targetEndRef.current = null;
+      return;
+    }
+    
+    // On starting, if we have no target yet, create one
+    if (!targetEndRef.current) {
+      targetEndRef.current = Date.now() + state.timeLeft * 1000;
+    }
 
-  // Switch to next mode (does not auto-start; user must press start again)
-  const switchMode = useCallback(() => {
+    const tick = () => {
+      // Use ref to check current running state (not closure)
+      if (!targetEndRef.current || !isRunningRef.current) return;
+      
+      const diffMs = targetEndRef.current - Date.now();
+      const newSeconds = Math.max(0, Math.round(diffMs / 1000));
+      
+      // Only update state if we're still supposed to be running
+      setState(prev => {
+        if (!prev.isRunning || !isRunningRef.current) return prev; // Bail out if state changed
+        return { ...prev, timeLeft: newSeconds };
+      });
+      
+      if (newSeconds === 0 && isRunningRef.current) {
+        // Auto switch mode once and stop running - inline the logic to avoid dependency issues
+        setState(prev => {
+          let newMode: TimerMode;
+          let newTimeLeft: number;
+          let newSessionsCompleted = prev.sessionsCompleted;
+
+          if (prev.mode === 'work') {
+            newSessionsCompleted += 1;
+            if (newSessionsCompleted % 4 === 0) {
+              newMode = 'longBreak';
+              newTimeLeft = prev.longBreakLength * 60;
+              showNotification('Great work! Time for a long break. 🎉');
+            } else {
+              newMode = 'break';
+              newTimeLeft = prev.shortBreakLength * 60;
+              showNotification('Work session complete! Time for a short break. ☕');
+            }
+          } else {
+            newMode = 'work';
+            newTimeLeft = prev.workLength * 60;
+            showNotification('Break time is over! Ready to focus? 🚀');
+          }
+
+          // Reset target end so we recalc only when user starts again
+          targetEndRef.current = null;
+          isRunningRef.current = false;
+
+          return {
+            ...prev,
+            mode: newMode,
+            timeLeft: newTimeLeft,
+            sessionsCompleted: newSessionsCompleted,
+            isRunning: false,
+          };
+        });
+      }
+    };
+
+    // Use shorter interval for smoother recovery after throttling
+    const interval = setInterval(tick, 1000);
+    // Initial immediate tick to sync in case of resume after visibility change
+    tick();
+    return () => clearInterval(interval);
+  }, [state.isRunning]); // Only depend on isRunning state
+
+  // Recalculate remaining time when tab becomes visible again (handles background throttling)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && state.isRunning && targetEndRef.current) {
+        const diffMs = targetEndRef.current - Date.now();
+        const newSeconds = Math.max(0, Math.round(diffMs / 1000));
+        setState(prev => ({ ...prev, timeLeft: newSeconds }));
+        if (newSeconds === 0) {
+          // Inline switchMode logic here too
+          setState(prev => {
+            let newMode: TimerMode;
+            let newTimeLeft: number;
+            let newSessionsCompleted = prev.sessionsCompleted;
+
+            if (prev.mode === 'work') {
+              newSessionsCompleted += 1;
+              if (newSessionsCompleted % 4 === 0) {
+                newMode = 'longBreak';
+                newTimeLeft = prev.longBreakLength * 60;
+                showNotification('Great work! Time for a long break. 🎉');
+              } else {
+                newMode = 'break';
+                newTimeLeft = prev.shortBreakLength * 60;
+                showNotification('Work session complete! Time for a short break. ☕');
+              }
+            } else {
+              newMode = 'work';
+              newTimeLeft = prev.workLength * 60;
+              showNotification('Break time is over! Ready to focus? 🚀');
+            }
+
+            targetEndRef.current = null;
+            isRunningRef.current = false;
+
+            return {
+              ...prev,
+              mode: newMode,
+              timeLeft: newTimeLeft,
+              sessionsCompleted: newSessionsCompleted,
+              isRunning: false,
+            };
+          });
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [state.isRunning]);
+
+  // Control handlers
+  const handleStartPause = () => {
+    setState(prev => {
+      const newRunningState = !prev.isRunning;
+      isRunningRef.current = newRunningState; // Update ref immediately
+      return { ...prev, isRunning: newRunningState };
+    });
+  };
+
+  const handleReset = () => {
+    targetEndRef.current = null; // Clear target so next start recalculates
+    isRunningRef.current = false; // Update ref immediately
+    setState(prev => ({
+      ...prev,
+      isRunning: false,
+      timeLeft: prev.mode === 'work'
+        ? prev.workLength * 60
+        : prev.mode === 'break'
+          ? prev.shortBreakLength * 60
+          : prev.longBreakLength * 60,
+    }));
+  };
+
+  const handleSkip = () => {
+    // First, immediately clear the target and stop the timer
+    targetEndRef.current = null;
+    isRunningRef.current = false; // Immediately update ref to stop timer
+    
+    // Then update state to switch modes
     setState(prev => {
       let newMode: TimerMode;
       let newTimeLeft: number;
@@ -91,81 +254,29 @@ const PomodoroTimer: React.FC = () => {
         showNotification('Break time is over! Ready to focus? 🚀');
       }
 
-      // Reset target end so we recalc only when user starts again
-      targetEndRef.current = null;
-
       return {
         ...prev,
         mode: newMode,
         timeLeft: newTimeLeft,
         sessionsCompleted: newSessionsCompleted,
-        isRunning: false,
+        isRunning: false, // Always stop when skipping
       };
     });
-  }, [showNotification]);
-
-  // Drift-proof timer effect: compute remaining time from target each tick
-  useEffect(() => {
-    if (!state.isRunning) return;
-    // On starting, if we have no target yet, create one
-    if (!targetEndRef.current) {
-      establishTarget(state.timeLeft); // state.timeLeft is seconds remaining at start
-    }
-
-    const tick = () => {
-      if (!targetEndRef.current) return;
-      const diffMs = targetEndRef.current - Date.now();
-      const newSeconds = Math.max(0, Math.round(diffMs / 1000));
-      setState(prev => ({ ...prev, timeLeft: newSeconds }));
-      if (newSeconds === 0) {
-        // Auto switch mode once and stop running
-        switchMode();
-      }
-    };
-
-    // Use shorter interval for smoother recovery after throttling
-    const interval = setInterval(tick, 1000);
-    // Initial immediate tick to sync in case of resume after visibility change
-    tick();
-    return () => clearInterval(interval);
-  }, [state.isRunning, establishTarget, switchMode, state.timeLeft]);
-
-  // Recalculate remaining time when tab becomes visible again (handles background throttling)
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && state.isRunning && targetEndRef.current) {
-        const diffMs = targetEndRef.current - Date.now();
-        const newSeconds = Math.max(0, Math.round(diffMs / 1000));
-        setState(prev => ({ ...prev, timeLeft: newSeconds }));
-        if (newSeconds === 0) {
-          switchMode();
-        }
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [state.isRunning, switchMode]);
-
-  // Control handlers
-  const handleStartPause = () => {
-    setState(prev => ({ ...prev, isRunning: !prev.isRunning }));
   };
 
-  const handleReset = () => {
-    setState(prev => ({
-      ...prev,
+  const handleClearAll = () => {
+    targetEndRef.current = null;
+    isRunningRef.current = false; // Update ref immediately
+    setShowAlert(false); // Clear any existing alerts
+    setState({
+      mode: 'work',
+      timeLeft: 25 * 60, // Reset to default 25 minutes
       isRunning: false,
-      timeLeft: prev.mode === 'work'
-        ? prev.workLength * 60
-        : prev.mode === 'break'
-          ? prev.shortBreakLength * 60
-          : prev.longBreakLength * 60,
-    }));
-    targetEndRef.current = null; // Clear target so next start recalculates
-  };
-
-  const handleSkip = () => {
-    switchMode();
+      sessionsCompleted: 0,
+      workLength: 25,
+      shortBreakLength: 5,
+      longBreakLength: 15,
+    });
   };
 
   // Settings handlers
@@ -207,7 +318,7 @@ const PomodoroTimer: React.FC = () => {
   const { minutes, seconds } = getDisplayTime();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8">
+    <div className={`min-h-screen bg-gradient-to-br ${currentTheme.background} py-8`}>
       {/* Alert */}
       {showAlert && (
         <Alert
@@ -225,6 +336,11 @@ const PomodoroTimer: React.FC = () => {
           <p className="text-gray-600">
             Sessions completed: <span className="font-semibold">{state.sessionsCompleted}</span>
           </p>
+        </div>
+
+        {/* Theme Selector */}
+        <div className="mb-8 max-w-2xl mx-auto">
+          <ThemeSelector />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
@@ -255,6 +371,7 @@ const PomodoroTimer: React.FC = () => {
               onStartPause={handleStartPause}
               onReset={handleReset}
               onSkip={handleSkip}
+              onClearAll={handleClearAll}
             />
           </div>
 

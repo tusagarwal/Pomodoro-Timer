@@ -1,0 +1,13 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Tomato body -->
+  <circle cx="16" cy="18" r="12" fill="#FF6B6B"/>
+  
+  <!-- Tomato stem -->
+  <path d="M12 8 C12 6, 14 4, 16 4 C18 4, 20 6, 20 8" stroke="#4CAF50" stroke-width="2" fill="none"/>
+  
+  <!-- Tomato leaf -->
+  <path d="M16 6 C18 4, 22 6, 20 10" stroke="#4CAF50" stroke-width="1.5" fill="#4CAF50"/>
+  
+  <!-- Highlight -->
+  <ellipse cx="13" cy="14" rx="3" ry="4" fill="#FF8E8E" opacity="0.6"/>
+</svg>
